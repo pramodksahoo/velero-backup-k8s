@@ -1,0 +1,292 @@
+##
+## Configuration settings that directly affect the Velero deployment YAML.
+## 
+# https://github.com/vmware-tanzu/helm-charts/tree/velero-5.1.0/charts/velero
+# Details of the container image to use in the Velero deployment & daemonset (if
+# enabling node-agent). Required.
+image:
+  repository: velero/velero
+  tag: v1.12.0
+  pullPolicy: IfNotPresent
+  # One or more secrets to be used when pulling images
+  imagePullSecrets: []
+  # - registrySecretName
+
+# Resource requests/limits to specify for the Velero deployment.
+# https://velero.io/docs/v1.6/customize-installation/#customize-resource-requests-and-limits
+resources:
+  requests:
+    cpu: 500m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+# Configure the dnsPolicy of the Velero deployment
+# See: https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/#pod-s-dns-policy
+dnsPolicy: ClusterFirst
+
+# Init containers to add to the Velero deployment's pod spec. At least one plugin provider image is required.
+# If the value is a string then it is evaluated as a template.
+initContainers:
+   - name: velero-plugin-for-csi
+     image: velero/velero-plugin-for-csi:v0.6.0
+     imagePullPolicy: IfNotPresent
+     volumeMounts:
+       - mountPath: /target
+         name: plugins
+   - name: velero-plugin-for-aws
+     image: velero/velero-plugin-for-aws:v1.8.0
+     imagePullPolicy: IfNotPresent
+     volumeMounts:
+       - mountPath: /target
+         name: plugins
+   - name: velero-plugin-for-digitalocean
+     image: digitalocean/velero-plugin:v1.1.0
+     imagePullPolicy: IfNotPresent
+     volumeMounts:
+       - mountPath: /target
+         name: plugins
+
+# Liveness probe of the pod
+livenessProbe:
+  httpGet:
+    path: /metrics
+    port: http-monitoring
+    scheme: HTTP
+  initialDelaySeconds: 10
+  periodSeconds: 30
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 5
+
+# Readiness probe of the pod
+readinessProbe:
+  httpGet:
+    path: /metrics
+    port: http-monitoring
+    scheme: HTTP
+  initialDelaySeconds: 10
+  periodSeconds: 30
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 5
+
+kubectl:
+  image:
+    repository: docker.io/bitnami/kubectl
+    # Digest value example: sha256:d238835e151cec91c6a811fe3a89a66d3231d9f64d09e5f3c49552672d271f38.
+    # If used, it will take precedence over the kubectl.image.tag.
+    # digest:
+    # kubectl image tag. If used, it will take precedence over the cluster Kubernetes version.
+    # tag: 1.16.15
+
+# This job upgrades the CRDs.
+upgradeCRDs: true
+
+# This job is meant primarily for cleaning up CRDs on CI systems.
+# Using this on production systems, especially those that have multiple releases of Velero, will be destructive.
+cleanUpCRDs: false
+
+##
+## End of deployment-related settings.
+##
+
+##
+## Parameters for the `default` BackupStorageLocation and VolumeSnapshotLocation,
+## and additional server settings.
+##
+
+configuration:
+  backupStorageLocation:
+  - name: aws
+    provider: velero.io/aws
+    bucket: staging-raicoon-backups    # Replace with bucket name you created above
+    prefix: kubernetes
+    default: true
+    accessMode: ReadWrite
+    credential:
+      name: velero-secrets
+      key: cloud
+    config:
+      region: eu-central-1    # Region where your bucket is located
+      s3Url: https://s3.amazonaws.com
+  # Parameters for the VolumeSnapshotLocation(s). Configure multiple by adding other element(s) to the volumeSnapshotLocation slice.
+  # See https://velero.io/docs/v1.6/api-types/volumesnapshotlocation/
+  volumeSnapshotLocation:
+  - name: digitalocean
+    provider: digitalocean.com/velero
+
+  # These are server-level settings passed as CLI flags to the `velero server` command. Velero
+  # uses default values if they're not passed in, so they only need to be explicitly specified
+  # here if using a non-default value. The `velero server` default values are shown in the
+  # comments below.
+  # --------------------
+  # `velero server` default: restic
+  uploaderType:
+  # `velero server` default: 1m
+  backupSyncPeriod:
+  # `velero server` default: 4h
+  fsBackupTimeout:
+  # `velero server` default: 30
+  clientBurst:
+  # `velero server` default: 500
+  clientPageSize:
+  # `velero server` default: 20.0
+  clientQPS:
+  # Name of the default backup storage location. Default: default
+  defaultBackupStorageLocation: aws
+  # How long to wait by default before backups can be garbage collected. Default: 72h
+  defaultBackupTTL:
+  # Name of the default volume snapshot location.
+  defaultVolumeSnapshotLocations:
+  # `velero server` default: empty
+  disableControllers:
+  # `velero server` default: 1h
+  garbageCollectionFrequency:
+  # Set log-format for Velero pod. Default: text. Other option: json.
+  logFormat:
+  # Set log-level for Velero pod. Default: info. Other options: debug, warning, error, fatal, panic.
+  logLevel:
+  # The address to expose prometheus metrics. Default: :8085
+  metricsAddress:
+  # Directory containing Velero plugins. Default: /plugins
+  pluginDir:
+  # The address to expose the pprof profiler. Default: localhost:6060
+  profilerAddress:
+  # `velero server` default: false
+  restoreOnlyMode:
+  # `velero server` default: customresourcedefinitions,namespaces,storageclasses,volumesnapshotclass.snapshot.storage.k8s.io,volumesnapshotcontents.snapshot.storage.k8s.io,volumesnapshots.snapshot.storage.k8s.io,persistentvolumes,persistentvolumeclaims,secrets,configmaps,serviceaccounts,limitranges,pods,replicasets.apps,clusterclasses.cluster.x-k8s.io,clusters.cluster.x-k8s.io,clusterresourcesets.addons.cluster.x-k8s.io
+  restoreResourcePriorities:
+  # `velero server` default: 1m
+  storeValidationFrequency:
+  # How long to wait on persistent volumes and namespaces to terminate during a restore before timing out. Default: 10m
+  terminatingResourceTimeout:
+  # Comma separated list of velero feature flags. default: empty
+  # features: EnableCSI
+  features:
+  # `velero server` default: velero
+  namespace:
+
+##
+## End of backup/snapshot location settings.
+##
+
+
+##
+## Settings for additional Velero resources.
+##
+
+rbac:
+  # Whether to create the Velero role and role binding to give all permissions to the namespace to Velero.
+  create: true
+  # Whether to create the cluster role binding to give administrator permissions to Velero
+  clusterAdministrator: true
+  # Name of the ClusterRole.
+  clusterAdministratorName: cluster-admin
+
+# Information about the Kubernetes service account Velero uses.
+serviceAccount:
+  server:
+    create: true
+    name:
+    annotations:
+    labels:
+
+# Info about the secret to be used by the Velero deployment, which
+# should contain credentials for the cloud provider IAM account you've
+# set up for Velero.
+credentials:
+  useSecret: true
+  name: velero-secrets
+  secretContents:
+    cloud: |
+      [default]
+      aws_access_key_id=${VELERO_S3_ACCESS_KEY_ID}
+      aws_secret_access_key=${VELERO_S3_SECRET_ACCESS_KEY} 
+  # additional key/value pairs to be used as environment variables such as "DIGITALOCEAN_TOKEN: <your-key>". Values will be stored in the secret.
+  extraEnvVars: 
+    DIGITALOCEAN_TOKEN: ${DIGITALOCEAN_API_TOKEN}
+
+# Whether to create backupstoragelocation crd, if false => do not create a default backup location
+backupsEnabled: true
+# Whether to create volumesnapshotlocation crd, if false => disable snapshot feature
+snapshotsEnabled: true
+
+# Whether to deploy the node-agent daemonset.
+deployNodeAgent: false
+
+nodeAgent:
+  podVolumePath: /var/lib/kubelet/pods
+  privileged: false
+  # Resource requests/limits to specify for the node-agent daemonset deployment. Optional.
+  # https://velero.io/docs/v1.6/customize-installation/#customize-resource-requests-and-limits
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1024Mi
+
+  # will map /scratch to emptyDir. Set to false and specify your own volume
+  # via extraVolumes and extraVolumeMounts that maps to /scratch
+  # if you don't want to use emptyDir.
+  useScratchEmptyDir: true
+
+  # Configure the dnsPolicy of the node-agent daemonset
+  # See: https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/#pod-s-dns-policy
+  dnsPolicy: ClusterFirst
+
+  # SecurityContext to use for the Velero deployment. Optional.
+  # Set fsGroup for `AWS IAM Roles for Service Accounts`
+  # see more informations at: https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html
+  podSecurityContext:
+    runAsUser: 0
+    # fsGroup: 1337
+
+# Backup schedules to create.
+schedules:
+  daily-backup:
+    disabled: false
+    labels:
+      backup-type: daily
+    annotations:
+      description: "Daily backup of all resources"
+    schedule: "0 0 * * *"  # This is a Cron format for daily backups
+    useOwnerReferencesInBackup: false
+    template:
+      ttl: "720h"  # Keep backups for 30 days
+      storageLocation: "aws"
+      includedNamespaces:
+      - '*'  # All namespaces
+
+# Velero ConfigMaps. customize the File System Backup (FSB) restore process, 
+# It is a ConfigMap that is mounted into the Velero restore helper container.
+# To use the fs-restore-action-config ConfigMap, you would need to set the VELERO_RESTORE_ACTION_CONFIG environment variable to the name of the ConfigMap when you run the velero restore command.
+# For example:VELERO_RESTORE_ACTION_CONFIG=fs-restore-action-config velero restore my-restore
+# Eg: See: https://velero.io/docs/v1.11/file-system-backup/
+# configMaps:
+#   fs-restore-action-config:
+#     labels:
+#       velero.io/plugin-config: ""
+#       velero.io/pod-volume-restore: RestoreItemAction
+#     data:
+#       image: velero/velero-restore-helper:v1.10.2
+#       cpuRequest: 200m
+#       memRequest: 128Mi
+#       cpuLimit: 200m
+#       memLimit: 128Mi
+#       secCtx: |
+#         capabilities:
+#           drop:
+#           - ALL
+#           add: []
+#         allowPrivilegeEscalation: false
+#         readOnlyRootFilesystem: true
+#         runAsUser: 1001
+#         runAsGroup: 999
+
+##
+## End of additional Velero resource settings.
+##

@@ -1,0 +1,73 @@
+stages:
+  - deploy-staging
+  - provision-staging
+  - deploy-production
+  - provision-production
+
+variables:
+  # set to 1 (via Gitlab UI) to enable some debug outputs
+  DEBUG_PIPELINE: 0
+  # some values.yaml files contain env-variable-style strings that should be
+  # ignored by envsubst, see https://stackoverflow.com/a/24964089/1521347
+  DOLLAR: "$"
+
+# ================== BASE ==================
+.staging:
+  stage: deploy-staging
+  environment:
+    name: staging
+
+.production:
+  stage: deploy-production
+  environment:
+    name: production
+  when: manual
+
+.cluster:
+  image: smaug.gt-d.com:5500/raicoon/zion/img-gitlab-runner-kubernetes/v1.25
+  tags: [] # this can run on any runner
+  before_script:
+    # info
+    - kubectl config view
+    - kubectl version -o json
+    - helm version
+
+# ================== Velero Backup-Restore ==================
+.velero:
+  extends: .cluster
+  resource_group: velero
+  only:
+    refs:
+      - master
+  script:
+    - helm repo add vmware-tanzu https://vmware-tanzu.github.io/helm-charts
+    - helm repo update
+
+    - if [[ $DEBUG_PIPELINE -eq 1 ]]; then envsubst < velero/values.yaml; fi
+    - if [[ $DEBUG_PIPELINE -eq 1 ]]; then envsubst < velero/values.yaml | helm template
+      velero
+      vmware-tanzu/velero
+      -n velero
+      --version 5.1.0
+      -f -; fi
+    - envsubst < velero/values.yaml | helm upgrade
+      velero
+      vmware-tanzu/velero
+      --install
+      --create-namespace
+      -n velero
+      --atomic
+      --version 5.1.0
+      -f -
+
+velero staging:
+  extends:
+    - .velero
+    - .staging
+
+velero production:
+  extends:
+    - .velero
+    - .production
+  needs:
+    - velero staging
